@@ -194,6 +194,23 @@ class RyujinxGenerator(Generator):
         def has_guid_patch(ctrl):
             return ctrl.guid in CONTROLLER_GUID_DB
 
+        def apply_inverse_buttons(controller, ryu_inverse_button: bool):
+            if ryu_inverse_button:
+                return controller  # on ne touche à rien
+
+            remap = controller.get("input_remap", {})
+
+            swap_pairs = [
+                ("a", "b"),
+                ("x", "y"),
+            ]
+
+            print(swap_pairs, file=sys.stderr)
+
+            for btn1, btn2 in swap_pairs:
+                remap[btn1], remap[btn2] = remap.get(btn2), remap.get(btn1)
+
+            return controller
 
         def patch_controller(ctrl):
             patch = CONTROLLER_GUID_DB.get(ctrl.guid)
@@ -206,6 +223,8 @@ class RyujinxGenerator(Generator):
                 ctrl.name = new_name
                 ctrl.real_name = new_name
 
+            ryu_inverse_button = system.config.get('ryu_inverse_button', 'false').lower() == 'true'
+            controller = apply_inverse_buttons(patch, ryu_inverse_button)
             # 2 Remap inputs
             input_remap = patch.get("input_remap", {})
             for input_name, new_id in input_remap.items():

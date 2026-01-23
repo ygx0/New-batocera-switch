@@ -825,8 +825,19 @@ class EdenGenerator(Generator):
                 else:
                     yuzuConfig.set("Controls", player_nb_str + "_type", 0)
 
+                # if system.isOptSet('yuzu_inverse_button'):
+                    # yuzu_inverse_button = system.config['yuzu_inverse_button']
+                # else:
+                    # yuzu_inverse_button = False
+
+                # print(system.config, file= sys.stderr)
+                # print(yuzu_inverse_button, file= sys.stderr)
+
+                yuzu_inverse_button = system.config.get('yuzu_inverse_button', 'false').lower() == 'true'
+                print(yuzu_inverse_button, file=sys.stderr)
+                print("yuzu_inverse_button =", yuzu_inverse_button, type(yuzu_inverse_button), file=sys.stderr)
                 for x in yuzuButtonsMapping:
-                    yuzuConfig.set("Controls", player_nb_str + "_" + x, '"{}"'.format(EdenGenerator.setButton(emulator, yuzuButtonsMapping[x], pad.guid, pad.inputs, guid_port[pad.guid],pad.name)))
+                    yuzuConfig.set("Controls", player_nb_str + "_" + x, '"{}"'.format(EdenGenerator.setButton(emulator, yuzuButtonsMapping[x], pad.guid, pad.inputs, guid_port[pad.guid], yuzu_inverse_button, pad.name,)))
                 for x in yuzuAxisMapping:
                     yuzuConfig.set("Controls", player_nb_str + "_" + x, '"{}"'.format(EdenGenerator.setAxis(yuzuAxisMapping[x], pad.guid, pad.inputs, guid_port[pad.guid])))
 
@@ -869,8 +880,9 @@ class EdenGenerator(Generator):
         with open(yuzuConfigFile, 'w') as configfile:
             yuzuConfig.write(configfile)
 
+
     @staticmethod
-    def setButton(emulator, key, padGuid, padInputs, port, padName=None):
+    def setButton(emulator, key, padGuid, padInputs, port,yuzu_inverse_button, padName=None):
 
         if key not in padInputs:
             return ""
@@ -878,10 +890,10 @@ class EdenGenerator(Generator):
         input = padInputs[key]
 
         XBOX_BUTTON_REMAP = {
-            "a": 1,
-            "b": 0,
-            "x": 3,
-            "y": 2,
+            "a": 0 if yuzu_inverse_button else 1,
+            "b": 1 if yuzu_inverse_button else 0,
+            "x": 2 if yuzu_inverse_button else 3,
+            "y": 3 if yuzu_inverse_button else 2,
             "pageup": 4,     # LB
             "pagedown": 5,   # RB
             "select": 6,     # Back
@@ -891,9 +903,12 @@ class EdenGenerator(Generator):
             "r3": 10,
         }
 
+        print(XBOX_BUTTON_REMAP, file=sys.stderr)
+
         is_xbox = (
             padGuid.startswith("060000005e04") or
             padGuid.startswith("030000007e05") or
+            padGuid.startswith("030000005e04") or
             (padName and "xbox" in padName.lower())
         )
         
