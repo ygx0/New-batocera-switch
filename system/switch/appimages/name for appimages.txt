@@ -1,10 +1,10 @@
 -----------------------------------
 name your .AppImages like this :
 -----------------------------------
-nommé vos .AppImages comme ceci :
+nommez vos .AppImages comme ceci :
 -----------------------------------
 
-"citron-emu.AppImages"
-"eden-emu.AppImages"
-"eden-pgo.AppImages"
-"ryujinx.AppImages"
+"citron-emu.AppImage"
+"eden-emu.AppImage"
+"eden-pgo.AppImage"
+"ryujinx-emu.AppImage"
