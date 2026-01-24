@@ -6,4 +6,5 @@ wget -q --no-check-certificate --no-cache --no-cookies -O "$updater" "https://ra
 dos2unix "$updater"
 chmod a+x "$updater"
 DISPLAY=:0.0
-xterm -fullscreen -hold -bg black -fa "DejaVuSansMono" -fs 12 -en UTF-8 -e "bash /userdata/system/switch/extra/appimage_updater.sh"
+xterm -fullscreen -bg black -fa "DejaVuSansMono" -fs 12 -en UTF-8 -e "bash /userdata/system/switch/extra/appimage_updater.sh"
+exit 0
