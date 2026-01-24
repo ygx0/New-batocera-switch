@@ -38,7 +38,7 @@ class RyujinxGenerator(Generator):
     def getHotkeysContext(self) -> HotkeysContext:
         return {
             "name": "ryujinx-emu",
-            "keys": { "exit": ["KEY_LEFTALT", "KEY_F4"]}
+            "keys": { "menu": "KEY_F4"}
         }
 
 
