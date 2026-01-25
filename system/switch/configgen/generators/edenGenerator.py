@@ -412,7 +412,7 @@ class EdenGenerator(Generator):
         # YUZU USER SAVE
         ensure_symlink(
             "/userdata/saves/switch/eden_citron/save/save_user",
-            "/userdata/system/configs/yuzu/nand/user"
+            "/userdata/system/configs/yuzu/nand/user/save"
         )
         # YUZU SYSTEM SAVE
         ensure_symlink(
