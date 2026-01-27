@@ -153,8 +153,11 @@ def detect_bus_from_hidraw(hidraw_path: str):
 def list_sdl_gamepads(sdlversion):
 
     os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
+    os.environ["SDL_JOYSTICK_HIDAPI_PS4"] = "0"
+    os.environ["SDL_JOYSTICK_HIDAPI_PS5"] = "0"
+    os.environ["SDL_JOYSTICK_HIDAPI_SWITCH"] = "0"
     os.environ["SDL_JOYSTICK_HIDAPI_XBOX"] = "0"
-    os.environ["SDL_JOYSTICK_HIDAPI_STEAMDECK"] = "0"  #reported by frolabroc, not tested myself yet
+    os.environ["SDL_JOYSTICK_HIDAPI_STEAMDECK"] = "0"  #reported by foclabroc, not tested myself yet
     os.environ["SDL_GAMECONTROLLERCONFIG_FILE"] = "/userdata/system/switch/configgen/gamecontrollerdb.txt"
 
     sdl2.SDL_ClearError()
@@ -309,6 +312,9 @@ class RyujinxGenerator(Generator):
                         "SDL_JOYSTICK_HIDAPI": "1",
                         "SDL_JOYSTICK_HIDAPI_XBOX": "0",
                         "SDL_JOYSTICK_HIDAPI_STEAMDECK" : "0",
+                        "SDL_JOYSTICK_HIDAPI_PS4": "0",
+                        "SDL_JOYSTICK_HIDAPI_PS5" : "0",
+                        "SDL_JOYSTICK_HIDAPI_SWITCH" : "0",
                         "SDL_GAMECONTROLLERCONFIG": sdl_mapping,
                         "DRI_PRIME":"1",
                         "AMD_VULKAN_ICD":"RADV",
@@ -322,6 +328,7 @@ class RyujinxGenerator(Generator):
                         "GDK_SCALE":"1",
                         "DOTNET_EnableAlternateStackCheck":"1",
                         "XDG_CONFIG_HOME":"/userdata/system/configs",
+                        "XDG_DATA_HOME":"/userdata/system/configs",
                         "XDG_CACHE_HOME":"/userdata/system/.cache",
         }
 

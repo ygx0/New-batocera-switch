@@ -236,10 +236,11 @@ def list_sdl_gamepads(sdlversion):
     # os.environ["SDL_JOYSTICK_HIDAPI_XBOX_ONE"] = "0"
     # os.environ["SDL_JOYSTICK_HIDAPI_SWITCH"] = "0"
     # os.environ["SDL_JOYSTICK_HIDAPI_STEAMDECK"] = "0"
-    # os.environ["SDL_JOYSTICK_HIDAPI_PS4"] = "0"
-    # os.environ["SDL_JOYSTICK_HIDAPI_PS5"] = "0"
 
     os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
+    os.environ["SDL_JOYSTICK_HIDAPI_PS4"] = "0"
+    os.environ["SDL_JOYSTICK_HIDAPI_PS5"] = "0"
+    os.environ["SDL_JOYSTICK_HIDAPI_SWITCH"] = "0"
     os.environ["SDL_JOYSTICK_HIDAPI_XBOX"] = "0"   #it's disable in yuzu for xbox
     os.environ["SDL_JOYSTICK_HIDAPI_STEAMDECK"] = "0"  #reported by frolabroc, not tested myself yet
     os.environ["SDL_GAMECONTROLLERCONFIG_FILE"] = "/userdata/system/switch/configgen/gamecontrollerdb.txt"
@@ -302,6 +303,7 @@ def is_steamdeck():
         return True
 
     return False
+
 class EdenGenerator(Generator):
 
     def getHotkeysContext(self) -> HotkeysContext:
@@ -719,6 +721,14 @@ class EdenGenerator(Generator):
         else:
             yuzuConfig.set("Renderer", "max_anisotropy", "0")
             yuzuConfig.set("Renderer", "max_anisotropy\\default", "true")
+
+        # Fullscreen mode
+        if system.isOptSet('fullscreen_mode'):
+            yuzuConfig.set("Renderer", "fullscreen_mode", system.config["fullscreen_mode"])
+            yuzuConfig.set("Renderer", "fullscreen_mode\\default", "false")
+        else:
+            yuzuConfig.set("Renderer", "fullscreen_mode", "1")
+            yuzuConfig.set("Renderer", "fullscreen_mode\\default", "true")
 
         # Resolution scaler
         if system.isOptSet('resolution_scale'):
