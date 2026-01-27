@@ -81,6 +81,7 @@ def hidraw_get_guid(devpath):
         return f"{vid}{pid}000000000000000000000000"
     except:
         return "00000000000000000000000000000000"
+
 def list_hidraw_devices():
     devices = []
     for h in glob.glob("/sys/class/hidraw/hidraw*"):
@@ -105,6 +106,7 @@ def list_hidraw_devices():
             "guid": guid
         })
     return devices
+
 def map_hidraw_to_evdev():
     mapping = {}
     for h in glob.glob("/sys/class/hidraw/hidraw*"):
@@ -203,7 +205,6 @@ def evdev_to_hidraw():
                     event_path = os.path.join(root, dir)
                     if "/input" in event_path and "/event" in event_path:
                         events.append(event_path)
-
         if events:
             for ev in events:
                 ev_name = os.path.basename(ev)
@@ -229,15 +230,19 @@ def detect_bus_from_hidraw(hidraw_path: str):
     return bus_prefix[2:]
 
 def list_sdl_gamepads(sdlversion):
-    
-    os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
-    os.environ["SDL_JOYSTICK_HIDAPI_XBOX"] = "0"
-    os.environ["SDL_JOYSTICK_HIDAPI_XBOX_ONE"] = "0"
-    os.environ["SDL_JOYSTICK_HIDAPI_SWITCH"] = "0"
-    os.environ["SDL_JOYSTICK_HIDAPI_STEAMDECK"] = "0"
-    os.environ["SDL_JOYSTICK_HIDAPI_PS4"] = "0"
-    os.environ["SDL_JOYSTICK_HIDAPI_PS5"] = "0"
 
+    # os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
+    # os.environ["SDL_JOYSTICK_HIDAPI_XBOX"] = "0"
+    # os.environ["SDL_JOYSTICK_HIDAPI_XBOX_ONE"] = "0"
+    # os.environ["SDL_JOYSTICK_HIDAPI_SWITCH"] = "0"
+    # os.environ["SDL_JOYSTICK_HIDAPI_STEAMDECK"] = "0"
+    # os.environ["SDL_JOYSTICK_HIDAPI_PS4"] = "0"
+    # os.environ["SDL_JOYSTICK_HIDAPI_PS5"] = "0"
+
+    os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
+    os.environ["SDL_JOYSTICK_HIDAPI_XBOX"] = "0"   #it's disable in yuzu for xbox
+    os.environ["SDL_JOYSTICK_HIDAPI_STEAMDECK"] = "0"  #reported by frolabroc, not tested myself yet
+    os.environ["SDL_GAMECONTROLLERCONFIG_FILE"] = "/userdata/system/switch/configgen/gamecontrollerdb.txt"
     sdl2.SDL_ClearError()
     try:
       ret = sdl2.SDL_Init(sdl2.SDL_INIT_GAMECONTROLLER)
@@ -425,14 +430,12 @@ class EdenGenerator(Generator):
             "/userdata/system/configs/yuzu/load"
         )
 
-
         yuzuConfig = str(CONFIGS) + '/yuzu/qt-config.ini'
         yuzuConfigTemplate = '/userdata/system/switch/configgen/qt-config.ini.template'
 
         EdenGenerator.writeYuzuConfig(yuzuConfig, yuzuConfigTemplate, system, playersControllers, sdlversion, emulator)
 
         # commandArray = ["./"+emulator+".AppImage", "-f",  "-g", rom ]
-
 
         # Cas spécial : Home Menu
         BASE_COMMAND = {
@@ -441,13 +444,12 @@ class EdenGenerator(Generator):
             "qlaunch": False,
         }
 
-        
         XCI_CONFIG_MAP = {
             "citron_config.xci_config": {
                 "emulator": "citron-emu",
                 "qlaunch": False,
-                "use_rom": False,                
-            },          
+                "use_rom": False,
+            },
             "eden_config.xci_config": {
                 "emulator": "eden-emu",
                 "qlaunch": False,
@@ -457,22 +459,19 @@ class EdenGenerator(Generator):
                 "emulator": "eden-emu",
                 "qlaunch": True,
                 "use_rom": False,                                
-            },            
+            },
         }
-        
+
         rom_nameq = os.path.basename(rom)
         cfg = XCI_CONFIG_MAP.get(rom_nameq, BASE_COMMAND)
 
         emulator_to_use = cfg["emulator"]
-                     
         use_qlaunch = cfg["qlaunch"]
         use_rom = cfg["use_rom"]
 
         commandArray = [
             f"./{emulator_to_use}.AppImage",
             "-f",
-                     
-                   
         ]
 
         if use_qlaunch:
@@ -841,25 +840,25 @@ class EdenGenerator(Generator):
             #get sdllib  hidapi/hidraw + evdev guid
             sdl_gamepads = list_sdl_gamepads(sdlversion)
 
-            import pprint
-            # pprint.pprint(evdev_hidraw, stream=sys.stderr)
-            # pprint.pprint(sdl_gamepads, stream=sys.stderr)
-            # pprint.pprint(playersControllers, stream=sys.stderr)
+
             nplayer = 0
             guid_port = {}
             for nplayer, pad in enumerate(playersControllers, start=0):
                 player_nb_str = "player_" + str(nplayer)
 
+                hidraw_path = None
                 #if hidraw exist, replace the guid and use the provided mapping
                 if pad.device_path in evdev_hidraw:
                     hidraw_path = evdev_hidraw[pad.device_path]
-                    if hidraw_path in sdl_gamepads:
-                        pad.guid = sdl_gamepads[hidraw_path]['guid']
-                        pad.inputs = sdl_gamepads[hidraw_path]['inputs']
+
+                if hidraw_path and hidraw_path in sdl_gamepads:
+                    pad.guid = sdl_gamepads[hidraw_path]['guid']
+                    pad.inputs = sdl_gamepads[hidraw_path]['inputs']
                 #try to get to mapping from the yuzu libsdl (mapping is different than libsdl from ES for some gamepad like xbox one)
                 elif pad.device_path in sdl_gamepads:
                     pad.inputs = sdl_gamepads[pad.device_path]['inputs']
-                #fallback to inputs from ES
+                #fallback to inputs from ES, we use original pad.inputs
+
 
                 #port index is by guid
                 if pad.guid not in guid_port:
@@ -873,19 +872,27 @@ class EdenGenerator(Generator):
                 else:
                     yuzuConfig.set("Controls", player_nb_str + "_type", 0)
 
-                # if system.isOptSet('yuzu_inverse_button'):
-                    # yuzu_inverse_button = system.config['yuzu_inverse_button']
-                # else:
-                    # yuzu_inverse_button = False
-
-                # print(system.config, file= sys.stderr)
-                # print(yuzu_inverse_button, file= sys.stderr)
+                #invert A<->B  X<->Y based on "Nintendo"
+                if pad.real_name and "Nintendo" in pad.real_name:
+                    yuzuButtonsMapping["button_a"] = "b"
+                    yuzuButtonsMapping["button_b"] = "a"
+                    yuzuButtonsMapping["button_x"] = "y"
+                    yuzuButtonsMapping["button_y"] = "x"
 
                 yuzu_inverse_button = system.config.get('yuzu_inverse_button', 'false').lower() == 'true'
-                print(yuzu_inverse_button, file=sys.stderr)
-                print("yuzu_inverse_button =", yuzu_inverse_button, type(yuzu_inverse_button), file=sys.stderr)
+                if yuzu_inverse_button:
+                    yuzuButtonsMapping["button_a"] = "b"
+                    yuzuButtonsMapping["button_b"] = "a"
+                    yuzuButtonsMapping["button_x"] = "y"
+                    yuzuButtonsMapping["button_y"] = "x"
+
+                print("Manette :", pad.name, file=sys.stderr)
+                print("Guid :", pad.guid, file=sys.stderr)
+                print("Yuzu Inverse Button COnfig : ", yuzu_inverse_button, file=sys.stderr)
+
+
                 for x in yuzuButtonsMapping:
-                    yuzuConfig.set("Controls", player_nb_str + "_" + x, '"{}"'.format(EdenGenerator.setButton(emulator, yuzuButtonsMapping[x], pad.guid, pad.inputs, guid_port[pad.guid], yuzu_inverse_button, pad.name,)))
+                    yuzuConfig.set("Controls", player_nb_str + "_" + x, '"{}"'.format(EdenGenerator.setButton(emulator, yuzuButtonsMapping[x], pad.guid, pad.inputs, guid_port[pad.guid])))
                 for x in yuzuAxisMapping:
                     yuzuConfig.set("Controls", player_nb_str + "_" + x, '"{}"'.format(EdenGenerator.setAxis(yuzuAxisMapping[x], pad.guid, pad.inputs, guid_port[pad.guid])))
 
@@ -909,17 +916,17 @@ class EdenGenerator(Generator):
 
     # telemetry section
         if not yuzuConfig.has_section("WebService"):
-            yuzuConfig.add_section("WebService") 
+            yuzuConfig.add_section("WebService")
         yuzuConfig.set("WebService", "enable_telemetry", "false")
-        yuzuConfig.set("WebService", "enable_telemetry\\default", "false") 
+        yuzuConfig.set("WebService", "enable_telemetry\\default", "false")
         yuzuConfig.set("WebService", "enable_auto_update_check", "false")
-        yuzuConfig.set("WebService", "enable_auto_update_check\\default", "false") 
+        yuzuConfig.set("WebService", "enable_auto_update_check\\default", "false")
 
     # Services section
         if not yuzuConfig.has_section("Services"):
             yuzuConfig.add_section("Services")
         yuzuConfig.set("Services", "bcat_backend", "none")
-        yuzuConfig.set("Services", "bcat_backend\\default", "none") 
+        yuzuConfig.set("Services", "bcat_backend\\default", "none")
 
         ### update the configuration file
         if not os.path.exists(os.path.dirname(yuzuConfigFile)):
@@ -928,73 +935,28 @@ class EdenGenerator(Generator):
         with open(yuzuConfigFile, 'w') as configfile:
             yuzuConfig.write(configfile)
 
-
     @staticmethod
-    def setButton(emulator, key, padGuid, padInputs, port,yuzu_inverse_button, padName=None):
+    def setButton(emulator, key, padGuid, padInputs, port):
+         # it would be better to pass the joystick num instead of the guid because 2 joysticks may have the same guid
+         if key in padInputs:
 
-        if key not in padInputs:
-            return ""
+             if emulator == "citron-emu" and key in ['left', 'right', 'up', 'down']:
+                 return ("hat:0,pad:0,direction:{},guid:{},port:{},engine:sdl").format(key, padGuid, port)
 
-        input = padInputs[key]
+             input = padInputs[key]
+             
+             print("input :", input, file=sys.stderr)
 
-        XBOX_BUTTON_REMAP = {
-            "a": 0 if yuzu_inverse_button else 1,
-            "b": 1 if yuzu_inverse_button else 0,
-            "x": 2 if yuzu_inverse_button else 3,
-            "y": 3 if yuzu_inverse_button else 2,
-            "pageup": 4,     # LB
-            "pagedown": 5,   # RB
-            "select": 6,     # Back
-            "start": 7,
-            "hotkey": 8,     # Guide
-            "l3": 9,
-            "r3": 10,
-        }
+             if input.type == "button":
+                 return ("button:{},guid:{},port:{},engine:sdl").format(input.id, padGuid, port)
+             elif input.type == "hat":
+                 return ("hat:0,pad:0,direction:{},guid:{},port:{},engine:sdl").format(key, padGuid, port)
+#                return ("hat:{},direction:{},guid:{},port:{},engine:sdl").format(input.id, YuzuMainlineGenerator.hatdirectionvalue(input.value), padGuid, port)
 
-        print(XBOX_BUTTON_REMAP, file=sys.stderr)
 
-        is_xbox = (
-            padGuid.startswith("060000005e04") or
-            padGuid.startswith("030000007e05") or
-            padGuid.startswith("030000005e04") or
-            (padName and "xbox" in padName.lower())
-        )
-        
-        log_stderr("[SETBUTTON]  controller detected {padGuid}")
-
-        if is_xbox:
-            log_stderr("[SETBUTTON] Xbox controller detected")
-
-        if input.type == "button":
-            if is_xbox and key in XBOX_BUTTON_REMAP:
-                button_id = XBOX_BUTTON_REMAP[key]
-                log_stderr(
-                    f"[SETBUTTON][XBOX] remap key={key} "
-                    f"hid_id={input.id} -> sdl_id={button_id}"
-                )
-            else:
-                button_id = input.id
-            mapping = (
-                f"button:{button_id},guid:{padGuid},port:{port},engine:sdl"
-            )
-
-            return mapping
-
-        elif input.type == "hat":
-            mapping = (
-                f"hat:0,pad:0,direction:{key},guid:{padGuid},port:{port},engine:sdl"
-            )
-
-            return mapping
-
-        elif input.type == "axis":
-            mapping = (
-                f"threshold:0.5,axis:{input.id},guid:{padGuid},port:{port},engine:sdl"
-            )
-
-            return mapping
-
-        return ""
+             elif input.type == "axis":
+                 return ("threshold:{},axis:{},guid:{},port:{},engine:sdl").format(0.5, input.id, padGuid, port)
+         return ""
 
     @staticmethod
     def hatdirectionvalue(value):

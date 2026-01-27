@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import filecmp
 import logging
+import glob
 import os
 import re
 import shutil
@@ -19,6 +20,13 @@ from configgen.batoceraPaths import CONFIGS, HOME, ROMS, SAVES, CACHE, mkdir_if_
 from configgen.controller import generate_sdl_game_controller_config
 from configgen.generators.Generator import Generator
 from configgen.utils.configparser import CaseSensitiveRawConfigParser
+from configgen.input import Input, InputDict, InputMapping
+
+os.environ["PYSDL2_DLL_PATH"] = "/userdata/system/switch/configgen/sdl2/"
+
+import sdl2
+from sdl2 import joystick
+from ctypes import create_string_buffer
 
 eslog = logging.getLogger(__name__)
 
@@ -33,6 +41,165 @@ def getCurrentCard() -> str | None:
     for val in out.decode().splitlines():
         return val # return the first line
 
+def sdlmapping_to_controller(mapping, guid):
+
+    sdl_to_batoinputmapping = {
+        'a': 'b',
+        'b': 'a',
+        'y': 'x',
+        'x': 'y',
+        'lefttrigger': 'l2',
+        'righttrigger': 'r2',
+        'leftstick': 'l3',
+        'rightstick': 'r3',
+        'leftshoulder': 'pageup',
+        'rightshoulder': 'pagedown',
+        'start': 'start',
+        'back': 'select',
+        'dpup': 'up',
+        'dpdown': 'down',
+        'dpleft': 'left',
+        'dpright': 'right',
+        'lefty': 'joystick1up',
+        'leftx': 'joystick1left',
+        'righty': 'joystick2up',
+        'rightx': 'joystick2left',
+        'guide':  'hotkey'
+    }
+
+
+    elements = mapping.split(',')
+
+    current_controller = {
+        "guid": guid,
+        "mapping": mapping,
+        "platform": "",
+        "inputs": {}
+    }
+
+    for element in elements[2:]:
+        if not element:
+            continue
+
+        if element.startswith('platform:'):
+            current_controller["platform"] = element[9:]  # Extraire après "platform:"
+        elif ':' in element:
+            logical_name, physical_mapping = element.split(':', 1)
+
+            input_type = "unknown"
+            clean_value = physical_mapping  # Valeur par défaut
+
+            if physical_mapping.startswith('b'):
+                input_type = "button"
+                clean_value = physical_mapping[1:]  # Enlever le 'b'
+            elif physical_mapping.startswith('a'):
+                input_type = "axis"
+                clean_value = physical_mapping[1:]  # Enlever le 'a'
+            elif physical_mapping.startswith('h'):
+                input_type = "hat"
+                # Pour les hats, on conserve la partie après le 'h' qui contient des informations importantes
+                clean_value = physical_mapping[1:]  # Enlever le 'h'
+                clean_value_mask, clean_value = clean_value.split('.')
+
+            if logical_name in sdl_to_batoinputmapping:
+                logical_name = sdl_to_batoinputmapping[logical_name]
+
+            input = Input(name=logical_name, type=input_type, id=clean_value, value=1, code=0 )
+            current_controller["inputs"][logical_name] = input
+
+    return current_controller
+
+
+def evdev_to_hidraw():
+
+    evdev_hidraw = {}
+
+    for hid_path in glob.glob('/sys/class/hidraw/hidraw*'):
+        # Obtenir le chemin du périphérique
+        hid_dev = os.path.realpath(os.path.join(hid_path, "device"))
+
+        events = []
+        for root, dirs, files in os.walk(hid_dev):
+            for dir in dirs:
+                if dir.startswith("event"):
+                    event_path = os.path.join(root, dir)
+                    if "/input" in event_path and "/event" in event_path:
+                        events.append(event_path)
+
+        if events:
+            for ev in events:
+                ev_name = os.path.basename(ev)
+                hid_name = os.path.basename(hid_path)
+                evdev_hidraw[f"/dev/input/{ev_name}"] = f"/dev/{hid_name}"
+    return evdev_hidraw
+
+def detect_bus_from_hidraw(hidraw_path: str):
+    # pass /dev/hidrawx
+    hidraw_device = os.path.basename(hidraw_path)
+    sysfs_path = f"/sys/class/hidraw/{hidraw_device}/device"
+
+    if not os.path.exists(sysfs_path):
+        return f"Device {hidraw_device} not found in sysfs"
+
+    # Resolve the real path (follows symlinks)
+    try:
+        real_device_path = os.path.realpath(sysfs_path)
+        bus_prefix = os.path.basename(real_device_path).split(":")[0]
+    except Exception as e:
+        return f"Error reading device path: {e}"
+
+    return bus_prefix[2:]
+
+def list_sdl_gamepads(sdlversion):
+
+    os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
+    os.environ["SDL_JOYSTICK_HIDAPI_XBOX"] = "0"
+    os.environ["SDL_JOYSTICK_HIDAPI_STEAMDECK"] = "0"  #reported by frolabroc, not tested myself yet
+    os.environ["SDL_GAMECONTROLLERCONFIG_FILE"] = "/userdata/system/switch/configgen/gamecontrollerdb.txt"
+
+    sdl2.SDL_ClearError()
+    try:
+      ret = sdl2.SDL_Init(sdl2.SDL_INIT_GAMECONTROLLER)
+    except:
+      print("An exception occurred")
+
+    count = joystick.SDL_NumJoysticks()
+
+    sdl_devices = {}
+
+    for i in range(count):
+        if sdl2.SDL_IsGameController(i) == 1:
+            pad = sdl2.SDL_GameControllerOpen(i)
+            path = sdl2.SDL_GameControllerPath(pad)
+
+            joy_guid = joystick.SDL_JoystickGetDeviceGUID(i)
+            buff = create_string_buffer(33)
+            joystick.SDL_JoystickGetGUIDString(joy_guid,buff,33)
+            buff[2] = b'0'
+            buff[3] = b'0'
+            buff[4] = b'0'
+            buff[5] = b'0'
+            buff[6] = b'0'
+            buff[7] = b'0'
+            guidstring = ((bytes(buff)).decode()).split('\x00',1)[0]
+            joy_path = joystick.SDL_JoystickPathForIndex(i).decode()
+
+            #sdl3 have implemented bus type in hidraw guid, we still use old sdl2 for this script
+            if 'hidraw' in joy_path and sdlversion == 3:
+                bustype = detect_bus_from_hidraw(joy_path)
+                guidstring = bustype + guidstring[2:]
+
+            mapping = sdl2.SDL_GameControllerMapping(pad);
+            import pprint
+            pprint.pprint(mapping)
+            eslog.debug(str(mapping))
+            controller = sdlmapping_to_controller(str(mapping), guidstring)
+
+            sdl_devices[joy_path] = controller
+
+    sdl2.SDL_Quit()
+
+    return sdl_devices
 class RyujinxGenerator(Generator):
 
     def getHotkeysContext(self) -> HotkeysContext:
@@ -40,7 +207,6 @@ class RyujinxGenerator(Generator):
             "name": "ryujinx-emu",
             "keys": { "menu": "KEY_F4"}
         }
-
 
     def generate(self, system, rom, playersControllers, metadata, guns, wheels, gameResolution):
 
@@ -132,157 +298,32 @@ class RyujinxGenerator(Generator):
 
         RyujinxRegisteredBios = Path('/userdata/system/configs/Ryujinx/bis/system/Contents/registered')
 
+        writelog("Controller mapping before: {}".format(generate_sdl_game_controller_config(playersControllers)))
+
         #Configuration update
-        RyujinxGenerator.writeRyujinxConfig(str(CONFIGS) + '/Ryujinx/Config.json', RyujinxConfigFileBefore, RyujinxConfigTemplate, system, playersControllers)
+        sdl_mapping = RyujinxGenerator.writeRyujinxConfig(str(CONFIGS) + '/Ryujinx/Config.json', RyujinxConfigFileBefore, RyujinxConfigTemplate, system, playersControllers)
 
+        writelog("Controller mapping after: {}".format(str(sdl_mapping)))
 
-        #==================================================================
-        # Patch manettes (GUID-based) – Batocera V42 / Ryujinx
-        #==================================================================
-
-        print("[INFO] Generating SDL_GAMECONTROLLERCONFIG for Ryujinx")
-        print(playersControllers, file=sys.stderr)
-
-        original = generate_sdl_game_controller_config(playersControllers)
-
-        print("[DEBUG] Original SDL_GAMECONTROLLERCONFIG:")
-        print(original, file=sys.stderr)
-
-
-        #------------------------------------------------------------------
-        # Base de données des patches par GUID
-        #------------------------------------------------------------------
-
-        def load_controller_guid_db(path):
-            db = {}
-
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-
-                        # skip commentaires / lignes vides
-                        if not line or line.startswith("#"):
-                            continue
-
-                        guid, name, mapping_str = line.split("|", 2)
-
-                        input_remap = {}
-                        for pair in mapping_str.split(","):
-                            key, value = pair.split(":", 1)
-                            input_remap[key] = value
-
-                        db[guid.lower()] = {
-                            "name": name,
-                            "input_remap": input_remap
-                        }
-
-            except FileNotFoundError:
-                print(f"[WARN] Controller DB not found: {path}", file=sys.stderr)
-
-            return db
-
-        CONTROLLER_GUID_DB = load_controller_guid_db(
-            "/userdata/system/switch/configgen/generators/gamecontroller_ryujinx.txt"
-        )
-
-
-        #------------------------------------------------------------------
-        # Helpers
-        #------------------------------------------------------------------
-
-        def has_guid_patch(ctrl):
-            return ctrl.guid in CONTROLLER_GUID_DB
-
-        def apply_inverse_buttons(controller, ryu_inverse_button: bool):
-            if ryu_inverse_button:
-                return controller  # on ne touche à rien
-
-            remap = controller.get("input_remap", {})
-
-            swap_pairs = [
-                ("a", "b"),
-                ("x", "y"),
-            ]
-
-            print(swap_pairs, file=sys.stderr)
-
-            for btn1, btn2 in swap_pairs:
-                remap[btn1], remap[btn2] = remap.get(btn2), remap.get(btn1)
-
-            return controller
-
-        def patch_controller(ctrl):
-            patch = CONTROLLER_GUID_DB.get(ctrl.guid)
-            if not patch:
-                return
-
-            # 1 Forcer uniquement
-            new_name = patch.get("name")
-            if new_name:
-                ctrl.name = new_name
-                ctrl.real_name = new_name
-
-            ryu_inverse_button = system.config.get('ryu_inverse_button', 'false').lower() == 'true'
-            controller = apply_inverse_buttons(patch, ryu_inverse_button)
-            # 2 Remap inputs
-            input_remap = patch.get("input_remap", {})
-            for input_name, new_id in input_remap.items():
-                if input_name in ctrl.inputs:
-                    ctrl.inputs[input_name].id = new_id
-
-
-        #------------------------------------------------------------------
-        # Application des patches
-        #------------------------------------------------------------------
-
-        for ctrl in playersControllers:
-            if has_guid_patch(ctrl):
-                print(f"[INFO] Controller GUID patch applied → {ctrl.guid} / {ctrl.name}")
-                patch_controller(ctrl)
-            else:
-                print(f"[DEBUG] No GUID patch for → {ctrl.guid} / {ctrl.name}", file=sys.stderr)
-
-
-        #------------------------------------------------------------------
-        # Génération finale SDL après patch
-        #------------------------------------------------------------------
-
-        patched = generate_sdl_game_controller_config(playersControllers)
-
-        print("[DEBUG] Patched SDL_GAMECONTROLLERCONFIG:")
-        print(patched, file=sys.stderr)
-
-        #==================================================================
-        # Fin patch manettes
-        #==================================================================
-
-        print(playersControllers, file=sys.stderr)
-        
-        environment = {
-            "SDL_GAMECONTROLLERCONFIG": generate_sdl_game_controller_config(playersControllers),
-            "DRI_PRIME": "1",
-            "AMD_VULKAN_ICD": "RADV",
-            "DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1": "1",
-            "XDG_MENU_PREFIX": "batocera-",
-            "XDG_CONFIG_DIRS": "/etc/xdg",
-            "XDG_CURRENT_DESKTOP": "XFCE",
-            "DESKTOP_SESSION": "XFCE",
-            "QT_FONT_DPI": "96",
-            "QT_SCALE_FACTOR": "1",
-            "GDK_SCALE": "1",
-            "DOTNET_EnableAlternateStackCheck": "1",
-            "XDG_CONFIG_HOME": "/userdata/system/configs",
-            "XDG_CACHE_HOME": "/userdata/system/.cache",
+        environment = { 
+                        "SDL_JOYSTICK_HIDAPI": "1",
+                        "SDL_JOYSTICK_HIDAPI_XBOX": "0",
+                        "SDL_JOYSTICK_HIDAPI_STEAMDECK" : "0",
+                        "SDL_GAMECONTROLLERCONFIG": sdl_mapping,
+                        "DRI_PRIME":"1",
+                        "AMD_VULKAN_ICD":"RADV",
+                        "DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1":"1",
+                        "XDG_MENU_PREFIX":"batocera-",
+                        "XDG_CONFIG_DIRS":"/etc/xdg",
+                        "XDG_CURRENT_DESKTOP":"XFCE",
+                        "DESKTOP_SESSION":"XFCE",
+                        "QT_FONT_DPI":"96",
+                        "QT_SCALE_FACTOR":"1",
+                        "GDK_SCALE":"1",
+                        "DOTNET_EnableAlternateStackCheck":"1",
+                        "XDG_CONFIG_HOME":"/userdata/system/configs",
+                        "XDG_CACHE_HOME":"/userdata/system/.cache",
         }
-
-        environment["SDL_JOYSTICK_HIDAPI"] = "1"
-        environment["SDL_JOYSTICK_HIDAPI_XBOX"] = "0"
-        environment["SDL_JOYSTICK_HIDAPI_XBOX_ONE"] = "0"
-        environment["SDL_JOYSTICK_HIDAPI_STEAMDECK"] = "0"
-        environment["SDL_JOYSTICK_HIDAPI_PS4"] = "0"
-        environment["SDL_JOYSTICK_HIDAPI_PS5"] = "0"
-        environment["SDL_JOYSTICK_HIDAPI_SWITCH"] = "0"
 
         rom_nameq = os.path.basename(rom)
         if rom_nameq == 'ryujinx_config.xci_config':
@@ -290,15 +331,11 @@ class RyujinxGenerator(Generator):
         else:
             commandArray = ["/userdata/system/switch/appimages/ryujinx-emu.AppImage", rom]
 
-        writelog("Controller Config before Playing: {}".format(generate_sdl_game_controller_config(playersControllers)))
-
         return Command.Command(array=commandArray, env=environment)
 
 
     def writeRyujinxConfig(RyujinxConfigFile, RyujinxConfigFileBefore, RyujinxConfigTemplateFile, system, playersControllers):
-
         writelog(RyujinxConfigTemplateFile)
-
         data = {}
 
         if os.path.exists("/userdata/system/configs/Ryujinx/Config.json.template"):
@@ -357,11 +394,21 @@ class RyujinxGenerator(Generator):
             data['graphics_backend'] = system.config["ryu_backend"]
         else:
             data['graphics_backend'] = 'Vulkan'
+
+
         data['language_code'] = str(getLangFromEnvironment())
         data['game_dirs'] = ["/userdata/roms/switch"]
 
+        sdl_mapping = generate_sdl_game_controller_config(playersControllers)
+
         if not system.isOptSet('ryu_auto_controller_config') or system.config["ryu_auto_controller_config"] != "0":
             debugcontrollers = True
+            sdl_mapping = ""
+
+            #get the evdev->hidraw mapping
+            evdev_hidraw = evdev_to_hidraw()
+            #get sdllib  hidapi/hidraw + evdev guid
+            sdl_gamepads = list_sdl_gamepads(2)            
 
             if debugcontrollers:
                 writelog("=====================================================Start Bato Controller Debug Info=========================================================")
@@ -387,6 +434,23 @@ class RyujinxGenerator(Generator):
 
                     invert_buttons = controller.guid in NINTENDO_GUIDS
 
+                    #if hidraw exist, replace the guid and use the provided mapping
+                    hidraw_path = None
+                    if controller.device_path in evdev_hidraw:
+                        hidraw_path = evdev_hidraw[controller.device_path]
+
+                    if hidraw_path and hidraw_path in sdl_gamepads:
+                        writelog("sdlmapping: hidraw")
+                        controller.guid = sdl_gamepads[hidraw_path]['guid']
+                        sdl_mapping += sdl_gamepads[hidraw_path]['mapping']
+                    #try to get to mapping from the yuzu libsdl
+                    elif controller.device_path in sdl_gamepads:
+                        writelog("sdlmapping: native libsdl mapping")
+                        sdl_mapping += sdl_gamepads[controller.device_path]['mapping']
+                    else:
+                        #fallback to inputs from ES
+                        writelog("sdlmapping: fallback to ES")
+                        sdl_mapping +=controller.generate_sdl_game_db_line()
                     myid = uuid.UUID(controller.guid)
                     myid.bytes_le
                     convuuid = uuid.UUID(bytes=myid.bytes_le)
@@ -396,208 +460,71 @@ class RyujinxGenerator(Generator):
                         index_of_convuuid[myid] = 0
 
                     controllernumber = str(controller.index)
-                    #Map Keys and GUIDs
+                   #Map Keys and GUIDs
                     cvalue = {}
-
                     motion = {}
                     motion['motion_backend'] = "GamepadDriver"
                     motion['sensitivity'] = 100
                     motion['gyro_deadzone'] = 1
                     motion['enable_motion'] = bool(1)
-
                     rumble = {}
                     rumble['strong_rumble'] = 1
                     rumble['weak_rumble'] = 1
                     rumble['enable_rumble'] = bool(1)
 
-                    which_pad = "p" + str(int(controller.player_number)) + "_pad"
-                    if ((system.isOptSet(which_pad) and ((system.config[which_pad] == "ProController") or (system.config[which_pad] == "JoyconPair")) ) or not system.isOptSet(which_pad)):
-                        left_joycon_stick = {}
-                        left_joycon_stick['joystick'] = "Left"
-                        left_joycon_stick['rotate90_cw'] = bool(0)
-                        left_joycon_stick['invert_stick_x'] = bool(0)
-                        left_joycon_stick['invert_stick_y'] = bool(0)
-                        left_joycon_stick['stick_button'] = "LeftStick"
+                    #Handle old settings that don't match above
+                    left_joycon_stick = {}
+                    left_joycon_stick['joystick'] = "Left"
+                    left_joycon_stick['rotate90_cw'] = bool(0)
+                    left_joycon_stick['invert_stick_x'] = bool(0)
+                    left_joycon_stick['invert_stick_y'] = bool(0)
+                    left_joycon_stick['stick_button'] = "LeftStick"            
 
-                        right_joycon_stick = {}
-                        right_joycon_stick['joystick'] = "Right"
-                        right_joycon_stick['rotate90_cw'] = bool(0)
-                        right_joycon_stick['invert_stick_x'] = bool(0)
-                        right_joycon_stick['invert_stick_y'] = bool(0)
-                        right_joycon_stick['stick_button'] = "RightStick" 
+                    right_joycon_stick = {}
+                    right_joycon_stick['joystick'] = "Right"
+                    right_joycon_stick['rotate90_cw'] = bool(0)
+                    right_joycon_stick['invert_stick_x'] = bool(0)
+                    right_joycon_stick['invert_stick_y'] = bool(0)
+                    right_joycon_stick['stick_button'] = "RightStick" 
 
-                        left_joycon = {}
-                        left_joycon['button_minus'] = "Back"
-                        left_joycon['button_l'] = "LeftShoulder"
-                        left_joycon['button_zl'] = "LeftTrigger"
-                        left_joycon['button_sl'] = "Unbound"
-                        left_joycon['button_sr'] = "Unbound"
-                        left_joycon['dpad_up'] = "DpadUp"
-                        left_joycon['dpad_down'] = "DpadDown"
-                        left_joycon['dpad_left'] = "DpadLeft"
-                        left_joycon['dpad_right'] = "DpadRight"
+                    left_joycon = {}
+                    left_joycon['button_minus'] = "Back"
+                    left_joycon['button_l'] = "LeftShoulder"
+                    left_joycon['button_zl'] = "LeftTrigger"
+                    left_joycon['button_sl'] = "Unbound"
+                    left_joycon['button_sr'] = "Unbound"
+                    left_joycon['dpad_up'] = "DpadUp"
+                    left_joycon['dpad_down'] = "DpadDown"
+                    left_joycon['dpad_left'] = "DpadLeft"
+                    left_joycon['dpad_right'] = "DpadRight"
 
-                        right_joycon = {}
-                        right_joycon['button_plus'] = "Start"
-                        right_joycon['button_r'] = "RightShoulder"
-                        right_joycon['button_zr'] = "RightTrigger"
-                        right_joycon['button_sl'] = "Unbound"
-                        right_joycon['button_sr'] = "Unbound"
+                    right_joycon = {}
+                    right_joycon['button_plus'] = "Start"
+                    right_joycon['button_r'] = "RightShoulder"
+                    right_joycon['button_zr'] = "RightTrigger"
+                    right_joycon['button_sl'] = "Unbound"
+                    right_joycon['button_sr'] = "Unbound"
 
-                        if invert_buttons:
-                            right_joycon['button_x'] = "X"
-                            right_joycon['button_b'] = "B"
-                            right_joycon['button_y'] = "Y"
-                            right_joycon['button_a'] = "A" 
-                        else:
-                            right_joycon['button_x'] = "Y"
-                            right_joycon['button_b'] = "A"
-                            right_joycon['button_y'] = "X"
-                            right_joycon['button_a'] = "B" 
+                    #invert based on "Nintendo", like Ryujinx code
+                    ryu_inverse_button = system.config.get('ryu_inverse_button', 'false').lower() == 'true'
 
-                        if system.isOptSet(which_pad):
-                            cvalue['controller_type'] = system.config["p1_pad"]
-                        else: 
-                            cvalue['controller_type'] = "ProController"
-                    elif (system.isOptSet(which_pad) and (system.config[which_pad] == "JoyconLeft")):
-                        left_joycon_stick = {}
-                        left_joycon_stick['joystick'] = "Left"
-                        left_joycon_stick['rotate90_cw'] = bool(0)
-                        left_joycon_stick['invert_stick_x'] = bool(0)
-                        left_joycon_stick['invert_stick_y'] = bool(0)
-                        left_joycon_stick['stick_button'] = "LeftStick"            
-
-                        right_joycon_stick = {}
-                        right_joycon_stick['joystick'] = "Unbound"
-                        right_joycon_stick['rotate90_cw'] = bool(0)
-                        right_joycon_stick['invert_stick_x'] = bool(0)
-                        right_joycon_stick['invert_stick_y'] = bool(0)
-                        right_joycon_stick['stick_button'] = "Unbound"
-
-                        left_joycon = {}
-                        left_joycon['button_minus'] = "Back"
-                        left_joycon['button_l'] = "LeftShoulder"
-                        left_joycon['button_zl'] = "LeftTrigger"
-                        left_joycon['button_sl'] = "LeftShoulder"
-                        left_joycon['button_sr'] = "RightShoulder"
-
-                        left_joycon['dpad_up'] = "Y"
-                        left_joycon['dpad_down'] = "A"
-                        left_joycon['dpad_left'] = "X"
-                        left_joycon['dpad_right'] = "B"                        
-
-                        right_joycon = {}
-                        right_joycon['button_plus'] = "Start"
-                        right_joycon['button_r'] = "RightShoulder"
-                        right_joycon['button_zr'] = "RightTrigger"
-                        right_joycon['button_sl'] = "Unbound"
-                        right_joycon['button_sr'] = "Unbound"
-
-                        if invert_buttons:
-                            right_joycon['button_x'] = "X"
-                            right_joycon['button_b'] = "B"
-                            right_joycon['button_y'] = "Y"
-                            right_joycon['button_a'] = "A"                         
-                        else:
-                            right_joycon['button_x'] = "Y"
-                            right_joycon['button_b'] = "A"
-                            right_joycon['button_y'] = "X"
-                            right_joycon['button_a'] = "B" 
-
-                        cvalue['controller_type'] = "JoyconLeft"
-                        
-                    elif (system.isOptSet(which_pad) and (system.config[which_pad] == "JoyconRight")):
-                        left_joycon_stick = {}
-                        left_joycon_stick['joystick'] = "Unbound"
-                        left_joycon_stick['rotate90_cw'] = bool(1)
-                        left_joycon_stick['invert_stick_x'] = bool(1)
-                        left_joycon_stick['invert_stick_y'] = bool(1)
-                        left_joycon_stick['stick_button'] = "Unbound"           
-
-                        right_joycon_stick = {}
-                        right_joycon_stick['joystick'] = "Left"
-                        right_joycon_stick['rotate90_cw'] = bool(0)
-                        right_joycon_stick['invert_stick_x'] = bool(0)
-                        right_joycon_stick['invert_stick_y'] = bool(0)
-                        right_joycon_stick['stick_button'] = "LeftStick" 
-
-                        left_joycon = {}
-                        left_joycon['button_minus'] = "Back"
-                        left_joycon['button_l'] = "LeftShoulder"
-                        left_joycon['button_zl'] = "LeftTrigger"
-                        left_joycon['button_sl'] = "Unbound"
-                        left_joycon['button_sr'] = "Unbound"
-
-                        left_joycon['dpad_up'] = "DpadUp"
-                        left_joycon['dpad_down'] = "DpadDown"
-                        left_joycon['dpad_left'] = "DpadLeft"
-                        left_joycon['dpad_right'] = "DpadRight"
-
-                        right_joycon = {}
-                        right_joycon['button_plus'] = "Start"
-                        right_joycon['button_r'] = "RightShoulder"
-                        right_joycon['button_zr'] = "RightTrigger"
-                        right_joycon['button_sl'] = "LeftShoulder"
-                        right_joycon['button_sr'] = "RightShoulder"
-
-                        if invert_buttons:
-                            right_joycon['button_x'] = "A"
-                            right_joycon['button_b'] = "Y"
-                            right_joycon['button_y'] = "X"
-                            right_joycon['button_a'] = "B" 
-                        else:
-                            right_joycon['button_x'] = "B"
-                            right_joycon['button_b'] = "X"
-                            right_joycon['button_y'] = "Y"
-                            right_joycon['button_a'] = "A"                         
-                        cvalue['controller_type'] = "JoyconRight"
+                    if controller.real_name and "Nintendo" in controller.real_name:
+                        right_joycon['button_x'] = "X"
+                        right_joycon['button_b'] = "B"
+                        right_joycon['button_y'] = "Y"
+                        right_joycon['button_a'] = "A" 
+                    elif ryu_inverse_button:
+                        right_joycon['button_x'] = "X"
+                        right_joycon['button_b'] = "B"
+                        right_joycon['button_y'] = "Y"
+                        right_joycon['button_a'] = "A" 
                     else:
-                        #Handle old settings that don't match above
-                        left_joycon_stick = {}
-                        left_joycon_stick['joystick'] = "Left"
-                        left_joycon_stick['rotate90_cw'] = bool(0)
-                        left_joycon_stick['invert_stick_x'] = bool(0)
-                        left_joycon_stick['invert_stick_y'] = bool(0)
-                        left_joycon_stick['stick_button'] = "LeftStick"            
+                        right_joycon['button_x'] = "Y"
+                        right_joycon['button_b'] = "A"
+                        right_joycon['button_y'] = "X"
+                        right_joycon['button_a'] = "B"
 
-                        right_joycon_stick = {}
-                        right_joycon_stick['joystick'] = "Right"
-                        right_joycon_stick['rotate90_cw'] = bool(0)
-                        right_joycon_stick['invert_stick_x'] = bool(0)
-                        right_joycon_stick['invert_stick_y'] = bool(0)
-                        right_joycon_stick['stick_button'] = "RightStick" 
-
-                        left_joycon = {}
-                        left_joycon['button_minus'] = "Back"
-                        left_joycon['button_l'] = "LeftShoulder"
-                        left_joycon['button_zl'] = "LeftTrigger"
-                        left_joycon['button_sl'] = "Unbound"
-                        left_joycon['button_sr'] = "Unbound"
-                        left_joycon['dpad_up'] = "DpadUp"
-                        left_joycon['dpad_down'] = "DpadDown"
-                        left_joycon['dpad_left'] = "DpadLeft"
-                        left_joycon['dpad_right'] = "DpadRight"
-
-                        right_joycon = {}
-                        right_joycon['button_plus'] = "Start"
-                        right_joycon['button_r'] = "RightShoulder"
-                        right_joycon['button_zr'] = "RightTrigger"
-                        right_joycon['button_sl'] = "Unbound"
-                        right_joycon['button_sr'] = "Unbound"
-
-                        if invert_buttons:
-                            right_joycon['button_x'] = "X"
-                            right_joycon['button_b'] = "B"
-                            right_joycon['button_y'] = "Y"
-                            right_joycon['button_a'] = "A" 
-                        else:
-                            right_joycon['button_x'] = "Y"
-                            right_joycon['button_b'] = "A"
-                            right_joycon['button_y'] = "X"
-                            right_joycon['button_a'] = "B" 
-
-                        cvalue['controller_type'] = "ProController"
-
+                    cvalue['controller_type'] = "ProController"
                     cvalue['left_joycon_stick'] = left_joycon_stick          
                     cvalue['right_joycon_stick'] = right_joycon_stick
                     cvalue['deadzone_left'] = 0.1           
@@ -669,6 +596,7 @@ class RyujinxGenerator(Generator):
         with open(RyujinxConfigFileBefore, "w") as outfile:
             outfile.write(json.dumps(data, indent=2))
 
+        return sdl_mapping
 def getLangFromEnvironment():
     lang = os.environ['LANG'][:5]
     availableLanguages = [ "en_US", "pt_BR", "es_ES", "fr_FR", "de_DE","it_IT", "el_GR", "tr_TR", "zh_CN"]
