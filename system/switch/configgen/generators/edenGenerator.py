@@ -940,8 +940,8 @@ class EdenGenerator(Generator):
          # it would be better to pass the joystick num instead of the guid because 2 joysticks may have the same guid
          if key in padInputs:
 
-             if emulator == "citron-emu" and key in ['left', 'right', 'up', 'down']:
-                 return ("hat:0,pad:0,direction:{},guid:{},port:{},engine:sdl").format(key, padGuid, port)
+             # if emulator == "citron-emu" and key in ['left', 'right', 'up', 'down']:
+                 # return ("hat:0,pad:0,direction:{},guid:{},port:{},engine:sdl").format(key, padGuid, port)
 
              input = padInputs[key]
              
