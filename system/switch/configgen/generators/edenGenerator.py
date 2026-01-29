@@ -417,6 +417,9 @@ class EdenGenerator(Generator):
         mkdir_if_not_exists(Path("/userdata/system/configs/yuzu/nand/system/save"))
 
         # Yuzu User XDG 
+        if os.path.exists("/userdata/system/switch/extra/folder-open"):
+            st = os.stat("/userdata/system/switch/extra/folder-open")
+            os.chmod("/userdata/system/switch/extra/folder-open", st.st_mode | stat.S_IEXEC)
         ensure_symlink(
             "/userdata/system/switch/extra/folder-open",
             "/usr/bin/xdg-open"
