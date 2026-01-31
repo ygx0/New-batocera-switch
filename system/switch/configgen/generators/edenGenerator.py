@@ -326,6 +326,8 @@ class EdenGenerator(Generator):
             emudir = 'eden'
         elif emulator == 'eden-emu':
             emudir = 'eden'
+        elif emulator == 'eden-nightly':
+            emudir = 'eden'
         else:
             emudir = emulator
 

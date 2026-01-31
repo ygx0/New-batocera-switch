@@ -27,6 +27,7 @@ def _new_get_generator(emulator: str):
     yuzuemu['eden-emu'] = 1
     yuzuemu['citron-emu'] = 1
     yuzuemu['eden-pgo'] = 1
+    yuzuemu['eden-nightly'] = 1
 
     rom_nameq = os.path.basename(rom)
     if rom_nameq == 'ryujinx_config.xci_config':
