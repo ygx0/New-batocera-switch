@@ -933,8 +933,15 @@ class EdenGenerator(Generator):
                 yuzuConfig.set("Controls", player_nb_str + "_motionright", '"guid:{},port:{},motion:0,engine:sdl"'.format(pad.guid,guid_port[pad.guid]))
                 yuzuConfig.set("Controls", player_nb_str + "_connected", "true")
                 yuzuConfig.set("Controls", player_nb_str + "_connected\\default", "false")
-                yuzuConfig.set("Controls", player_nb_str + "_vibration_enabled", "true")
-                yuzuConfig.set("Controls", player_nb_str + "_vibration_enabled\\default", "false")
+
+                # Vibration
+                if system.isOptSet('yuzu_rumble'):
+                    yuzuConfig.set("Controls", player_nb_str + "_vibration_enabled", system.config["yuzu_rumble"])
+                    yuzuConfig.set("Controls", player_nb_str + "_vibration_enabled\\default", "false")
+                else:
+                    yuzuConfig.set("Controls", player_nb_str + "_vibration_enabled", "true")
+                    yuzuConfig.set("Controls", player_nb_str + "_vibration_enabled\\default", "true")
+
                 nplayer += 1
         else:
             if yuzuoldConfig is not None:
