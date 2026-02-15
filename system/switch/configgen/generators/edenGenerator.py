@@ -347,6 +347,9 @@ class EdenGenerator(Generator):
         mkdir_if_not_exists(Path("/userdata/system/configs/yuzu/nand"))
         mkdir_if_not_exists(Path("/userdata/system/configs/yuzu/nand/system"))
         mkdir_if_not_exists(Path("/userdata/system/configs/yuzu/nand/system/Contents"))
+        mkdir_if_not_exists(Path("/userdata/roms/switch_update"))
+        mkdir_if_not_exists(Path("/userdata/roms/switch_update/dlc"))
+        mkdir_if_not_exists(Path("/userdata/roms/switch_update/update"))
 
         #Link Yuzu firmware/key folder
         # YUZU KEYS
@@ -583,6 +586,10 @@ class EdenGenerator(Generator):
             yuzuConfig.set("UI", "UIGameList\\cache_game_list", "true")
             yuzuConfig.set("UI", "UIGameList\\cache_game_list\\default", "true")
 
+        if emulator == "eden-emu":
+            yuzuConfig.set("UI", "Paths\\external_content_dirs\\size", "2")
+            yuzuConfig.set("UI", "Paths\\external_content_dirs\\1\\path", "/userdata/roms/switch_update/dlc/")
+            yuzuConfig.set("UI", "Paths\\external_content_dirs\\2\\path", "/userdata/roms/switch_update/update/")
         #citron shortcuts
         yuzuConfig.set("UI", "Shortcuts\\shortcuts\\size", "1")#adjust to number of shortcut sets
         #exit citron
@@ -617,6 +624,7 @@ class EdenGenerator(Generator):
         yuzuConfig.set("UI", "Shortcuts\\Main%20Window\\Continue\\Pause%20Emulation\\Context\\default", "true")
         yuzuConfig.set("UI", "Shortcuts\\Main%20Window\\Continue\\Pause%20Emulation\\Context", "1")
 
+        yuzuConfig.set("UI", "Paths\\romsPath", "/userdata/roms/switch")
         yuzuConfig.set("UI", "Paths\\gamedirs\\1\\deep_scan", "true")
         yuzuConfig.set("UI", "Paths\\gamedirs\\1\\deep_scan\\default", "false")
         yuzuConfig.set("UI", "Paths\\gamedirs\\1\\expanded", "true")

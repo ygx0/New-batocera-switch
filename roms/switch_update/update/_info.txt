@@ -1,0 +1,3 @@
+-Placer vos Update de jeux switch au format .nsp ici. Il ce chargeront automatiquement.
+
+-Place your Switch game Updates in .nsp format here. They will load automatically.
